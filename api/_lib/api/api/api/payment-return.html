@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Votre paiement - BRVM PRO GOLDEN</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0b1f4a; color: #fff; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .card { background: #fff; color: #111; max-width: 440px; width: 100%; border-radius: 12px; padding: 28px 22px; text-align: center; }
+    h1 { font-size: 1.3rem; margin: 0 0 10px; }
+    p { margin: 8px 0; line-height: 1.5; }
+    a.btn { display: inline-block; margin-top: 14px; padding: 12px 22px; background: #c9a227; color: #111; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="state-loading"><h1>Vérification du paiement…</h1><p>Merci de patienter, cela peut prendre quelques secondes.</p></div>
+
+    <div id="state-paid" class="hidden">
+      <h1>Paiement confirmé ✅</h1>
+      <p id="paid-product"></p>
+      <a id="download-link" class="btn" href="#">Télécharger mon document</a>
+    </div>
+
+    <div id="state-pending" class="hidden">
+      <h1>Paiement en attente ⏳</h1>
+      <p>Votre paiement n'est pas encore confirmé. Si vous avez validé sur votre téléphone, patientez un instant.</p>
+      <a class="btn" href="" onclick="location.reload(); return false;">Vérifier à nouveau</a>
+    </div>
+
+    <div id="state-failed" class="hidden">
+      <h1>Paiement non abouti ❌</h1>
+      <p id="failed-text">Le paiement a été refusé ou annulé. Aucun montant n'est dû.</p>
+      <a class="btn" href="/">Retour à la boutique</a>
+    </div>
+
+    <div id="state-error" class="hidden">
+      <h1>Transaction introuvable</h1>
+      <p>Nous ne retrouvons pas cette commande. Si vous avez payé, contactez-nous avec votre numéro de transaction.</p>
+      <a class="btn" href="/">Retour à la boutique</a>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var states = ["loading", "paid", "pending", "failed", "error"];
+      function show(name) {
+        states.forEach(function (s) {
+          document.getElementById("state-" + s).classList.toggle("hidden", s !== name);
+        });
+      }
+
+      var params = new URLSearchParams(location.search);
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem("brvm_order") || "{}"); } catch (e) {}
+
+      var k = params.get("k") || saved.k;
+      var id = params.get("id") || saved.id;
+      if (!/^\d+$/.test(String(id || ""))) id = saved.id;
+
+      if (!id || !k) { show("error"); return; }
+
+      var attempts = 0, MAX_ATTEMPTS = 10;
+
+      function check() {
+        attempts++;
+        fetch("/api/payment-status?id=" + encodeURIComponent(id) + "&k=" + encodeURIComponent(k), { cache: "no-store" })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+          .then(function (res) {
+            var d = res.data;
+            if (!res.ok || !d.success) { show("error"); return; }
+
+            if (d.status === "paid") {
+              document.getElementById("paid-product").textContent = d.productName;
+              document.getElementById("download-link").href = d.downloadUrl;
+              show("paid");
+              try { localStorage.removeItem("brvm_order"); } catch (e) {}
+            } else if (d.status === "pending" || d.status === "unknown") {
+              if (attempts < MAX_ATTEMPTS) { show("loading"); setTimeout(check, 3000); }
+              else { show("pending"); }
+            } else {
+              if (d.status === "refunded") document.getElementById("failed-text").textContent = "Ce paiement a été remboursé.";
+              show("failed");
+            }
+          })
+          .catch(function () { show("error"); });
+      }
+      check();
+    })();
+  </script>
+</body>
+      </html>
